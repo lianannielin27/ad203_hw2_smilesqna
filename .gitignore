@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Conda / virtual environments
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Secrets / environment variables
+.env
+.env.*
+
+# Model/cache files — don't accidentally commit downloaded model weights
+*.safetensors
+*.bin
+*.pt
+*.pth
