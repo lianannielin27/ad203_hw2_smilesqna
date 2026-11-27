@@ -4,6 +4,7 @@
 # torch: the deep-learning framework the model runs on.
 # transformers: Hugging Face library that gives us the model + tokenizer.
 import torch
+import json
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from rdkit import Chem
 from rdkit.Chem import Descriptors, Crippen, Lipinski, QED, rdMolDescriptors
@@ -143,7 +144,7 @@ while True:
 
     # TODO 1.5: Make sure you delete this line of code before submitting.
     # This line of code is simply here to help you to debug.
-    print('LLM response so far: ', response) 
+    # print('LLM response so far: ', response) 
 
     # -----------------------------------------------------------------------
     # Do your work to do the tool calls based on LLM response
@@ -152,4 +153,111 @@ while True:
     # TODO 2: Based on the output of the LLM, make the appropriate tool
     # calls to RDKit and output the response in a user friendly manner.
     # Have fun in this part of the code!
+
+  #Parse the LLM response and route requests to RDKit
+    # map each property name used by Qwen to:
+    #   1) a user-friendly display name
+    #   2) the appropriate RDKit calculation
+    property_tools = {
+        "molecular_weight": ("Molecular weight", lambda mol: Descriptors.MolWt(mol)),
+        "logp": ("LogP", lambda mol: Crippen.MolLogP(mol)),
+        "tpsa": ("TPSA", lambda mol: rdMolDescriptors.CalcTPSA(mol)),
+        "h_bond_donors": ("Hydrogen bond donors", lambda mol: Lipinski.NumHDonors(mol)),
+        "h_bond_acceptors": ("Hydrogen bond acceptors", lambda mol: Lipinski.NumHAcceptors(mol)),
+        "rotatable_bonds": ("Rotatable bonds", lambda mol: Lipinski.NumRotatableBonds(mol)),
+        "num_rings": ("Number of rings", lambda mol: Lipinski.RingCount(mol)),
+        "num_aromatic_rings": ("Number of aromatic rings", lambda mol: Lipinski.NumAromaticRings(mol)),
+    }
+
+    try:
+        parsed_response = json.loads(response)
+
+    except json.JSONDecodeError:
+        print(
+            "Sorry, I couldn't understand that request. "
+            "Please ask about a supported chemical property and provide a SMILES string."
+        )
+        continue
+
+    # requests with no smiles string
+    if parsed_response.get("no_smiles", False):
+        print("Please provide a valid SMILES string.")
+        continue
+
+    queries = parsed_response.get("queries", [])
+
+    # requests that are out of scope
+    if not queries and parsed_response.get("off_topic", False):
+        print(
+            "I can only answer questions about molecular weight, logP, TPSA, "
+            "hydrogen bond donors, hydrogen bond acceptors, rotatable bonds, "
+            "number of rings, and number of aromatic rings."
+        )
+        continue
+
+    # smiles : requested property
+    for query in queries:
+
+        smiles = query.get("smiles")
+        property_name = query.get("property")
+
+        if not smiles:
+            print("Please provide a valid SMILES string.")
+            continue
+
+        if property_name not in property_tools:
+            print(
+                f"I don't support the property '{property_name}'. "
+                "Please ask about one of the 8 supported properties."
+            )
+            continue
+
+        # convert smiles into rdkit molecule
+        # Chem.MolFromSmiles returns None if rdkit cannot parse the SMILES
+        mol = Chem.MolFromSmiles(smiles)
+
+        if mol is None:
+            print(
+                f"'{smiles}' is not a valid SMILES string. "
+                "Please provide a valid SMILES string."
+            )
+            continue
+
+        # calling appropriate rdkit tool
+        display_name, tool_function = property_tools[property_name]
+        result = tool_function(mol)
+
+        if property_name == "molecular_weight":
+            print(
+                f"{display_name} of {smiles}: "
+                f"{result:.2f} g/mol"
+            )
+
+        elif property_name == "logp":
+            print(
+                f"{display_name} of {smiles}: "
+                f"{result:.2f}"
+            )
+
+        elif property_name == "tpsa":
+            print(
+                f"{display_name} of {smiles}: "
+                f"{result:.2f} Å²"
+            )
+
+        else:
+            # These properties return counts.
+            print(
+                f"{display_name} of {smiles}: "
+                f"{int(result)}"
+            )
+
+    # if on topic and valid query but has unsupported version, let user know what part is unsupported
+    if parsed_response.get("off_topic", False) and queries:
+        print(
+            "Note: Part of your request was outside the properties I support. "
+            "I can answer molecular weight, logP, TPSA, hydrogen bond donors, "
+            "hydrogen bond acceptors, rotatable bonds, number of rings, and "
+            "number of aromatic rings."
+        )
 
